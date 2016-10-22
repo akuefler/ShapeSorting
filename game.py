@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.misc import imresize
 from scipy.stats import entropy
+import matplotlib as mpl
 
 import sys
 import gym
@@ -11,8 +12,6 @@ from gym.spaces import Discrete, Box
 
 from action_maps import DISCRETE_ACT_MAP4 as DISCRETE_ACT_MAP
 #from action_maps import DISCRETE_ACT_MAP3 as DISCRETE_ACT_MAP
-
-from habituation import SurprisalManager
 
 from math import pi
 
@@ -128,6 +127,17 @@ def fit(hole, block):
     
     #ang_fit= abs(hole.ang - block.ang) < TOL
     return (pos_fit and ang_fit)
+
+def process_observation(screen):
+
+    r = pygame.surfarray.pixels_red(screen).astype('float32')
+    g = pygame.surfarray.pixels_green(screen).astype('float32')
+    b = pygame.surfarray.pixels_blue(screen).astype('float32')
+    X = (2 ** 2) * r + 2 * g + b # convert to 1D map
+    Z = imresize(X,(84,84))
+    Y = (Z.astype('float32') - 255/2) / (255/2)
+    
+    return Y
           
 def create_renderList(specs, H, W):
     """
@@ -170,7 +180,9 @@ def create_renderList(specs, H, W):
 class ShapeSorter(object):
     def __init__(self, act_mode= 'discrete', grab_mode= 'toggle',
                  include_tris= True,
-                 random_cursor= False, random_layout= True):
+                 random_cursor= False,
+                 random_layout= True,
+                 observe_fn= None):
         pygame.init()
         self.H = 200; self.W = 200
         
@@ -179,10 +191,14 @@ class ShapeSorter(object):
         self.act_mode = act_mode
         self.grab_mode= grab_mode
         self.include_tris=include_tris
-        self.sm = SurprisalManager()
         
         self.random_layout = random_layout
         self.random_cursor = random_cursor
+        
+        if observe_fn is None:
+            self.observe_fn = lambda x : x
+        else:
+            self.observe_fn = observe_fn
         
         self.initialize()
         
@@ -394,16 +410,8 @@ class ShapeSorter(object):
             done= True
             reward+= 5000.0 / self.numBlocks
         
-        X = np.swapaxes(pygame.surfarray.array3d(self.screen),0,1)
-        
-        r = (pygame.surfarray.pixels_red(self.screen) / 255) * 1
-        g = (pygame.surfarray.pixels_green(self.screen) / 255) * 3
-        b = (pygame.surfarray.pixels_blue(self.screen) / 255) * 7
-        observation = (r + g + b)
-        observation = imresize(observation.T, (84,84)).astype('float32')
-        
-        observation = np.abs(observation - 11.0)
-        observation /= 11.0        
+        #X = np.swapaxes(pygame.surfarray.array3d(self.screen),0,1)
+        observation = self.observe_fn(self.screen)
         
         return observation, reward, done, info
     
@@ -418,9 +426,9 @@ class ShapeSorter(object):
         time.sleep(0.1)
         pygame.display.flip()
             
-def main(smooth= False):
-    mode= 'discrete'
-    ss= ShapeSorter(act_mode= mode, include_tris= True)
+def main(smooth= False, mode= 'discrete'):
+    ss= ShapeSorter(act_mode= mode, include_tris= True,
+                    observe_fn= process_observation)
     acts_taken = 0
     running = True
     actions= []
@@ -481,161 +489,11 @@ def main(smooth= False):
                 actions.append('none')
                 
             _,reward,done,info = ss.step(actions)
-            #print reward
-            #if flag: #print "euc norm: %f, kl norm: %f"%(info['euc'], info['kl'])
-                #for key, val in info.iteritems():
-                    #print key,'...',val
             ss.render()
             
             if done:
                 break
-                
     
-#def main(mode= 'continuous'): # Where we start
-    #pygame.init()
-    #clock = pygame.time.Clock()
-    #screen=pygame.display.set_mode((500,500))
-    #screenCenter = (250,250)
-    #if mode == 'discrete':
-        #x_speed= 0
-        #y_speed= 0
-        
-    #running=True
-                 
-    #hList, bList= create_renderList({'disk':{'color':RED, 'size':50,
-                                           #'bPositions':[(300,300)],
-                                           #'hPosition' :(200,250)},
-                                   #'rect':{'color':RED, 'size':50,
-                                           #'bPositions':[(400,100)],
-                                           #'hPosition' :(300,250)}})
-    #renderList = hList + bList
-    #grab= False
-    #target=None # target of Drag/Drop
-    
-    #cursorPos = screenCenter
-    #while running:
-    ##for _ in range(5000):
-        
-        #screen.fill((255,255,255)) # clear screen
-        #if mode == 'continuous':
-            #cursorPos=pygame.mouse.get_pos()
-        
-        #for event in pygame.event.get():
-            #if event.type == pygame.QUIT:
-                #running=False
-                #break # get out now
-
-            #if mode == 'continuous':
-                #if event.type == pygame.MOUSEBUTTONDOWN:
-                    #grab = True 
-                
-                #if event.type == pygame.MOUSEBUTTONUP:
-                    #grab = False
-                
-            #elif mode == 'discrete':
-                #if event.type == pygame.KEYDOWN:
-                    ##Grab object
-                    #if event.key == pygame.K_SPACE:
-                        #grab = True
                     
-                    ##Adjust speed of cursor.
-                    #if event.key == pygame.K_LEFT:
-                        #x_speed = -3
-                    #elif event.key == pygame.K_RIGHT:
-                        #x_speed = 3
-                    #elif event.key == pygame.K_UP:
-                        #y_speed = -3
-                    #elif event.key == pygame.K_DOWN:
-                        #y_speed = 3
-     
-                ## User let up on a key
-                #elif event.type == pygame.KEYUP:
-                    #if event.key == pygame.K_SPACE:
-                        #grab = False
-                        
-                    ## If it is an arrow key, reset vector back to zero
-                    #if event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
-                        #x_speed = 0
-                    #elif event.key == pygame.K_UP or event.key == pygame.K_DOWN:
-                        #y_speed = 0
-         
-        #if mode == 'discrete':        
-            #(x_pos, y_pos) = cursorPos
-            #cursorPos = (x_pos + x_speed, y_pos + y_speed)            
-                        
-        #if grab==True:
-            #for item in renderList: # search all items
-                #if (item.typ == 'block' and
-                        #cursorPos[0]>=(item.pos[0]-item.size) and 
-                        #cursorPos[0]<=(item.pos[0]+item.size) and 
-                        #cursorPos[1]>=(item.pos[1]-item.size) and 
-                        #cursorPos[1]<=(item.pos[1]+item.size) ): # inside the bounding box
-                    #target=item # "pick up" item
-                        
-                #if grab and target is not None: # if we are dragging something
-                    #target.pos=cursorPos # move the target with us
-                    
-        #else:
-            #if target is not None:
-                #for hole in hList:
-                    #if (type(hole) == type(target) and
-                        #np.linalg.norm( np.array(hole.pos) - np.array(target.pos))
-                        #< TOL):
-                        ##print "HOORAY!"
-                        #renderList.remove(target)
-                        
-            #target = None
-                
-        #for item in renderList:
-            #item.render(screen) # Draw all items
-        
-        ##Render Cursor
-        #if grab:
-            #col= BLUE
-        #else:
-            #col= GREEN
-        #pygame.draw.circle(screen, col, cursorPos, 10)
-        
-        #pygame.display.flip()
-        
-        ##clock.tick(60)
-        
-        #X = pygame.surfarray.array3d(screen)
-        
-    #return X# End of function
-                    
-#if __name__ == '__main__': # Are we RUNNING from this module?
-    #X = main() # Execute our main function
-
-#E= 1000
-#T= 50
-
-#def gymLoop(env, render):
-    #for i_episode in range(E):
-        #done = False
-        #_ = env.reset()
-        #total_cost = 0.0
-        #total_reward=0.0
-        
-        #t = 0
-        #while t < T:
-            #if render:
-                #env.render()
-            #action = env.action_space.sample()
-            ##print "action: ", DISCRETE_ACT_MAP[action]
-            #observation, reward, done, info = env.step(action)
-            #print reward
-            #total_reward += reward        
-            #if done:
-                #print("Episode finished after {} timesteps".format(t+1))
-                #break
-            #t += 1
-
-#env = ShapeSorter(random_cursor= False)
-#for ren in [True]:
-    ##t1 = time.time()
-    #gymLoop(env,ren)
-    ##t2 = time.time()
-    ##print "Time: ", t2-t1
-    
-#halt= True
+if __name__ == '__main__':
+    X = main(smooth= False, mode= 'discrete') # Execute our main function
