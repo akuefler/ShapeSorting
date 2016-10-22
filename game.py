@@ -16,6 +16,7 @@ from action_maps import DISCRETE_ACT_MAP4 as DISCRETE_ACT_MAP
 from math import pi
 
 import time
+import random
 
 WHITE=(255,255,255)
 RED = (255,0,0)
@@ -48,7 +49,7 @@ class Block(object):
         raise NotImplementedError
 
 class Disk(Block): # Something we can create and manipulate
-    def __init__(self, color, center, size, typ): # initialze the properties of the object
+    def __init__(self, color, center, size, typ, angle): # initialze the properties of the object
         Block.__init__(self, color, center, size, typ)
     
     def render(self,screen,angle):
@@ -148,16 +149,17 @@ def create_renderList(specs, H, W):
     blockList = []
     holeList = []
     for key, val in specs.iteritems():
-        if key == 'disk':
-            obj = Disk
-        elif key == 'rect':
-            obj = Rect
-        elif key == 'tri':
-            obj = Tri
-        else:
-            pass
+        #if key == 'disk':
+            #obj = Disk
+        #elif key == 'rect':
+            #obj = Rect
+        #elif key == 'tri':
+            #obj = Tri
+        #else:
+            #pass
+        obj = key
         kwargs = {key : val for key, val in val.iteritems()
-                  if key not in ['bPositions', 'hPosition', 'bAngles']}
+                  if key not in ['bPositions', 'hPosition', 'bAngles', 'hAngle']}
         
         for i, per in enumerate(val['bPositions']):
             kwargs['center'] = (int(per[0]*H), int(per[1]*W))
@@ -170,8 +172,8 @@ def create_renderList(specs, H, W):
         kwargs['center'] = (int(hPercent[0]*H), int(hPercent[1]*W))
         kwargs['typ'] = 'hole'
         kwargs['color'] = BLACK
-        if not obj == Disk:
-            kwargs['angle'] = 0.0
+        #if not obj == Disk:
+        kwargs['angle'] = val['hAngle']
         holeList.append(obj(**kwargs))
             
     #renderList = holeList + blockList
@@ -179,18 +181,23 @@ def create_renderList(specs, H, W):
             
 class ShapeSorter(object):
     def __init__(self, act_mode= 'discrete', grab_mode= 'toggle',
-                 include_tris= True,
+                 shapes = [Disk, Rect, Tri],
+                 sizes = [30, 50, 60],
                  random_cursor= False,
                  random_layout= True,
+                 n_blocks = 3,
                  observe_fn= None):
         pygame.init()
         self.H = 200; self.W = 200
+        
+        self.shapes = shapes
+        self.sizes = sizes
+        self.n_blocks = n_blocks
         
         self.screen=pygame.display.set_mode((self.H, self.W))
         self.screenCenter = (self.H/2,self.W/2)
         self.act_mode = act_mode
         self.grab_mode= grab_mode
-        self.include_tris=include_tris
         
         self.random_layout = random_layout
         self.random_cursor = random_cursor
@@ -205,71 +212,71 @@ class ShapeSorter(object):
     def initialize(self):
         self.state= {}
         if self.act_mode == 'discrete':
-            #x_speed= 0
-            #y_speed= 0
             self.action_space = Discrete(len(DISCRETE_ACT_MAP))            
             self.state['x_speed'] = 0
             self.state['y_speed'] = 0
         else:
             raise NotImplementedError
         
-        #self.observation_space = Box(0, 255, shape=(self.H,self.W,3))
         self.observation_space = Box(0, 1, 84 * 84)
+            
+        block_selections= np.random.multinomial(len(self.shapes), [1./self.n_blocks]*self.n_blocks)
+        bPers = [None]*len(self.shapes)
+        hPers = [None]*len(self.shapes)
+        bAngs = [None]*len(self.shapes)
+        hAngs = [None]*len(self.shapes)
         
-        #self.numBlocks= np.random.randint(1,5)
-        self.numBlocks= 3
-        if self.include_tris:
-            block_selections= np.random.multinomial(self.numBlocks, [0.33,0.33,0.33])
-            pers= [None, None, None]
-        else:
-            block_selections= np.random.multinomial(self.numBlocks, [0.5,0.5])
-            pers= [None, None]
+        assert len(block_selections) == len(self.shapes)
+        
+        canonical_positions = [[0.03 * self.H/DISCRETE_STEP,0.03 * self.H/DISCRETE_STEP],
+                               [0.07 * self.H/DISCRETE_STEP,0.03 * self.H/DISCRETE_STEP],
+                               [0.03 * self.H/DISCRETE_STEP,0.07 * self.H/DISCRETE_STEP],
+                               [0.07 * self.H/DISCRETE_STEP,0.07 * self.H/DISCRETE_STEP]
+                               ]
+        random.shuffle(canonical_positions)
+        
+        for i, n_b in enumerate(block_selections):
+            bPers[i] = np.around(np.random.uniform(0.05,0.95,(n_b,2)),1)
+            bAngs[i] = np.random.randint(1,360/DISCRETE_ROT,(n_b,)) * DISCRETE_ROT % 360
+            hPers[i] = canonical_positions[i]
+            hAngs[i] = np.random.randint(1,360/DISCRETE_ROT) * DISCRETE_ROT % 360
+                        
+        D = {shape: {'color':RED,
+                     'size':self.sizes[i],
+                     'bPositions':bPers[i],
+                     'hPosition':hPers[i],
+                     'bAngles':bAngs[i],
+                     'hAngle':hAngs[i]
+                     }
+            for i, shape in enumerate(self.shapes)
+            }
             
-        if self.random_layout:
-            for i, b in enumerate(block_selections):
-                pers[i]= np.random.uniform(0.05,0.95, (b,2))
-                pers[i]= np.around(pers[i],1)
+        hList, bList = create_renderList(D, self.H, self.W)
+        #hList, bList= create_renderList({'disk':{'color':RED, 'size':30,
+                                               #'bPositions':pers[0],
+                                               #'hPosition' :(0.3,.3)},
+                                       #'rect':{'color':RED, 'size':50,
+                                               #'bPositions': pers[1],
+                                               #'hPosition' :(.7,.3),
+                                               #'bAngles' : np.random.randint(1,12,(len(pers[1])
+                                                                                   #,)) * DISCRETE_ROT % 360},
+                                       #'tri':{'color':RED, 'size':60,
+                                              #'bPositions': pers[2],
+                                              #'hPosition' : (.5,.7),
+                                              #'bAngles' : np.random.randint(1,12,(len(pers[2])
+                                                                                  #,)) * DISCRETE_ROT % 360}
+                                       #},
+                                       #self.H, self.W)          
 
-            #diskPer= np.random.uniform(0.05,0.95, (numDisks,2))
-            #rectPer= np.random.uniform(0.05,0.95, (numRects,2))
-            
-            #diskPer= np.around(diskPer,1)
-            #rectPer= np.around(rectPer,1)
-            
-            #numTris = np.random.randint(0,4)
-            
-            #triPer= np.random.uniform(0.05,0.95, (numTris,2))
-            #triPer= np.around(triPer,1)          
-            
-        else:
-            diskPer= [[.4,.7],[.5, .4]]
-            rectPer= [(.8,.8)]
-            
-        if self.include_tris:
-            hList, bList= create_renderList({'disk':{'color':RED, 'size':30,
-                                                   'bPositions':pers[0],
-                                                   'hPosition' :(0.3,.3)},
-                                           'rect':{'color':RED, 'size':50,
-                                                   'bPositions': pers[1],
-                                                   'hPosition' :(.7,.3),
-                                                   'bAngles' : np.random.randint(1,12,(len(pers[1])
-                                                                                       ,)) * 30 % 360},
-                                           'tri':{'color':RED, 'size':60,
-                                                  'bPositions': pers[2],
-                                                  'hPosition' : (.5,.7),
-                                                  'bAngles' : np.random.randint(1,12,(len(pers[2])
-                                                                                      ,)) * 30 % 360                                                  }},
-                                            self.H, self.W)          
-
-        else:
-            hList, bList= create_renderList({'disk':{'color':RED, 'size':30,
-                                                   'bPositions':pers[0],
-                                                   'hPosition' :(0.3,.5)},
-                                           'rect':{'color':RED, 'size':50,
-                                                   'bPositions': pers[1],
-                                                   'hPosition' :(.7,.5)}
-                                           },
-                                            self.H, self.W)       
+        #else:
+            #hList, bList= create_renderList({'disk':{'color':RED, 'size':30,
+                                                   #'bPositions':pers[0],
+                                                   #'hPosition' :(0.3,.5)},
+                                           #'rect':{'color':RED, 'size':50,
+                                                   #'bPositions': pers[1],
+                                                   #'hPosition' :(.7,.5)}
+                                           #},
+                                            #self.H, self.W)       
 
         self.state['hList'] = hList
         self.state['bList'] = bList
@@ -331,14 +338,14 @@ class ShapeSorter(object):
             
         if 'rotate_cw' in agent_events and self.state['target']:
             self.state['target'].rotate(-DISCRETE_ROT)
-            reward += 0.1 / self.numBlocks
+            reward += 0.1 / self.n_blocks
             
             #shield = (cursorPos[0]-15, cursorPos[1]-15, 30, 30)
             #pygame.draw.arc(self.screen, OUTLINE, shield, pi/2, 3*pi/2, 15)            
         
         if 'rotate_ccw' in agent_events and self.state['target']:
             self.state['target'].rotate(DISCRETE_ROT)
-            reward += 0.1 / self.numBlocks
+            reward += 0.1 / self.n_blocks
             
             #shield = (cursorPos[0]-15, cursorPos[1]-15, 30, 30)
             #pygame.draw.arc(self.screen, OUTLINE, shield, 3*pi/2, pi/2, 15)            
@@ -346,7 +353,7 @@ class ShapeSorter(object):
         #Penalize border hugging:
         if cursorPos[1] == self.W - 0.1*self.W or cursorPos[1] == self.W*0.1 or \
            cursorPos[0] == self.H - 0.1*self.H or cursorPos[0] == self.H*0.1:
-            reward -= 0.1 / self.numBlocks
+            reward -= 0.1 / self.n_blocks
             penalize= True
         
         if self.state['grab']:
@@ -369,7 +376,7 @@ class ShapeSorter(object):
             if self.state['target'] is not None:
                 self.state['target'].center = tuple(np.array(self.state['target'].center) + cursorDis)
                 if not penalize:
-                    reward += 0.1 / self.numBlocks
+                    reward += 0.1 / self.n_blocks
                     
         else:
             if self.state['target'] is not None:
@@ -377,7 +384,7 @@ class ShapeSorter(object):
                     if type(hole) == type(self.state['target']):
                         if fit(hole, self.state['target']):
                             self.state['bList'].remove(self.state['target'])
-                            reward += 1000.0 / self.numBlocks
+                            reward += 1000.0 / self.n_blocks
                         
                     #if (type(hole) == type(self.state['target']) and
                         #np.linalg.norm( np.array(hole.center) 
@@ -408,7 +415,7 @@ class ShapeSorter(object):
         
         if self.state['bList'] == []:
             done= True
-            reward+= 5000.0 / self.numBlocks
+            reward+= 5000.0 / self.n_blocks
         
         #X = np.swapaxes(pygame.surfarray.array3d(self.screen),0,1)
         observation = self.observe_fn(self.screen)
@@ -427,8 +434,7 @@ class ShapeSorter(object):
         pygame.display.flip()
             
 def main(smooth= False, mode= 'discrete'):
-    ss= ShapeSorter(act_mode= mode, include_tris= True,
-                    observe_fn= process_observation)
+    ss= ShapeSorter(act_mode= mode, observe_fn= process_observation)
     acts_taken = 0
     running = True
     actions= []
