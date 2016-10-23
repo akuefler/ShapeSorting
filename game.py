@@ -11,7 +11,7 @@ import gym
 from gym.spaces import Discrete, Box
 
 from game_settings import DISCRETE_ACT_MAP4 as DISCRETE_ACT_MAP
-from game_settings import REWARD_DICT1 as REWARD_DICT
+from game_settings import REWARD_DICT2 as REWARD_DICT
 
 from math import pi
 
@@ -94,12 +94,16 @@ class ShapeSorter(object):
                  #sizes = [50, 60, 40],
                  sizes = [60,60,60,60,60,60],
                  random_cursor= False,
-                 random_layout= True,
+                 random_holes= True,
                  n_blocks = 3,
-                 observe_fn= None):
+                 act_map = DISCRETE_ACT_MAP,
+                 reward_dict = REWARD_DICT):
         assert len(sizes) == len(shapes)
         pg.init()
         self.H = 200; self.W = 200
+        
+        self.act_map = act_map
+        self.reward_dict = reward_dict
         
         self.shapes = shapes
         self.sizes = sizes
@@ -110,26 +114,22 @@ class ShapeSorter(object):
         self.act_mode = act_mode
         self.grab_mode= grab_mode
         
-        self.random_layout = random_layout
+        self.random_holes = random_holes
         self.random_cursor = random_cursor
-        
-        if observe_fn is None:
-            self.observe_fn = lambda x : x
-        else:
-            self.observe_fn = observe_fn
         
         self.initialize()
         
     def initialize(self):
         self.state= {}
         if self.act_mode == 'discrete':
-            self.action_space = Discrete(len(DISCRETE_ACT_MAP))            
+            self.action_space = Discrete(len(self.act_map))            
             self.state['x_speed'] = 0
             self.state['y_speed'] = 0
         else:
             raise NotImplementedError
         
-        self.observation_space = Box(0, 1, 84 * 84)
+        #self.observation_space = Box(0, 1, 84 * 84)
+        self.observation_space = Box(-float('inf'),float('inf'),(84,84))
             
         block_selections= np.random.multinomial(self.n_blocks, [1./len(self.shapes)]*len(self.shapes))
         hDisp = [None]*len(self.shapes)
@@ -145,7 +145,8 @@ class ShapeSorter(object):
                                [0.03 * self.H/DISCRETE_STEP,0.07 * self.H/DISCRETE_STEP],
                                [0.07 * self.H/DISCRETE_STEP,0.07 * self.H/DISCRETE_STEP]
                                ]
-        random.shuffle(canonical_positions)
+        if self.random_holes:
+            random.shuffle(canonical_positions)
         
         for i, (shape_ix, n_b) in enumerate(zip(np.argsort(block_selections)[::-1], np.sort(block_selections)[::-1])):
             bPers[shape_ix] = np.around(np.random.uniform(0.05,0.95,(n_b,2)),1)
@@ -182,7 +183,6 @@ class ShapeSorter(object):
         else:
             self.state['cursorPos'] = self.screenCenter
         self.state['history']= []        
-        #self.state['prevObs']= observation
         
     def step(self, action):
         info = {}
@@ -195,7 +195,7 @@ class ShapeSorter(object):
         
         if type(action) != list:
             if self.act_mode == 'discrete':
-                agent_events = DISCRETE_ACT_MAP[action]
+                agent_events = self.act_map[action]
             elif self.act_mode == 'continuous':
                 raise NotImplementedError
         else:
@@ -301,7 +301,7 @@ class ShapeSorter(object):
             done= True
             reward+= REWARD_DICT['trial_end'] / self.n_blocks
         
-        observation = self.observe_fn(self.screen)
+        observation = process_observation(self.screen)
         
         return observation, reward, done, info
     
@@ -350,9 +350,7 @@ def main(smooth= False, mode= 'discrete'):
                             actions.append('down')
                             
                         acts_taken += 1
-                        #print acts_taken
                         flag= True
-                        #print "euc norm: %f, kl norm: %f"%(euc_norm, kl_norm)
                         
                     if event.type == pg.KEYDOWN:
                         if event.key == pg.K_a:
@@ -382,8 +380,33 @@ def main(smooth= False, mode= 'discrete'):
             
             if done:
                 break
+
+class ShapeSorterWrapper(ShapeSorter):
     
-                    
+    #_act_mode='discrete'
+    #_grab_mode='toggle'
+    #_shapes=[Trapezoid, RightTri, Hexagon, Tri, Rect, Star]
+    #_sizes=[60,60,60,60,60,60]
+    #_n_blocks=3
+    
+    def __init__(self):
+        super(ShapeSorterWrapper, self).__init__(
+            act_mode=ShapeSorterWrapper._act_mode,
+            grab_mode=ShapeSorterWrapper._grab_mode,
+            shapes=ShapeSorterWrapper._shapes,
+            sizes=ShapeSorterWrapper._sizes,
+            n_blocks=ShapeSorterWrapper._n_blocks,
+            random_cursor=ShapeSorterWrapper._random_cursor,
+            random_holes=ShapeSorterWrapper._random_holes
+        )
+    
+    @classmethod
+    def set_initials(cls, **kwargs):
+        for k, v in kwargs.iteritems():
+            setattr(ShapeSorterWrapper,k,v)
+            
+        halt= True
+
 if __name__ == '__main__':
     h = Hexagon(RED, (0.,0.), 30, 'block', angle = 0.0)
     X = main(smooth= False, mode= 'discrete') # Execute our main function
