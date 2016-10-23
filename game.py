@@ -1,4 +1,4 @@
-import pygame
+import pygame as pg
 from pygame import Surface
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,125 +15,38 @@ from action_maps import DISCRETE_ACT_MAP4 as DISCRETE_ACT_MAP
 
 from math import pi
 
+import shapely.geometry
+from shape_zoo import *
+
 import time
 import random
 
-WHITE=(255,255,255)
-RED = (255,0,0)
-OUTLINE=(255,255,0)
-GREEN=(0,255,0)
-BLUE= (0,0,255)
-BLACK= (0,0,0)
-
 TOL = 10
-PAD = 500
 #DISCRETE_STEP = 20
 DISCRETE_STEP = 20
-
 DISCRETE_ROT = 30 #should be 30?
 
 E = 20
-#T = 5000
 T = 5000
-
-class Block(object):
-    def __init__(self, color, center, size, typ):
-        self.color=color
-        self.center=center
-        self.size=size
-        self.typ=typ
-        self.surface=Surface((size,size))
-        self.surface.fill((0,0,255))
-                
-    def render(self):
-        raise NotImplementedError
-
-class Disk(Block): # Something we can create and manipulate
-    def __init__(self, color, center, size, typ, angle): # initialze the properties of the object
-        Block.__init__(self, color, center, size, typ)
-    
-    def render(self,screen,angle):
-        pygame.draw.circle(screen,self.color,self.center,self.size)
-        if self.typ == 'block':
-            pygame.draw.circle(screen,OUTLINE,self.center,self.size,1)
-            
-    def rotate(self,angle):
-        pass
         
-class PolyBlock(Block): # Something we can create and manipulate
-    def __init__(self,color,center,size, typ, angle): # initialze the properties of the object
-        Block.__init__(self, color, center, size, typ)
-        self.surface=Surface((size+PAD,size+PAD))
-        self.surface.fill(WHITE)
-        
-        self.angle= angle        
-    
-    def render(self,screen, angle= 5.0):
-        self.surface.fill((255,255,255))
-        half = self.size/2
-        v = self.vertices+self.center
-        
-        #pygame.draw.rect(screen,self.color,rect)
-        pygame.draw.polygon(screen,self.color,v)
-        if self.typ == 'block':
-            pygame.draw.polygon(screen,OUTLINE,v,1)
-            
-    def rotate(self, angle):
-        self.angle = (self.angle +  angle) % 360
-        if self.angle == 0:
-            halt= True
-        #print self.ang
-        
-        theta = np.radians(self.angle)
-        R = np.array([[np.cos(theta),-np.sin(theta)],
-                      [np.sin(theta),np.cos(theta)]])
-        self.vertices= np.dot(self.V,R).astype('int64')
-               
-class Rect(PolyBlock):
-    def __init__(self, color, center, size, typ, angle = 0.0):
-        PolyBlock.__init__(self, color, center, size, typ, angle)
-        half= self.size/2
-        self.vertices=self.V= np.array([[-half,half],[half,half],[half,-half],[-half,-half]])
-        
-        self.rotate(self.angle)
-        
-        
-class Tri(PolyBlock):
-    def __init__(self, color, center, size, typ, angle = 0.0):
-        """
-        size = (length,)
-        """
-        PolyBlock.__init__(self, color, center, size, typ, angle)
-        l = size
-        a = np.sqrt((l**2) - ((l**2)/4.0))
-        v= np.array([[-l/2.0, 0],[l/2.0, 0],[0, a]])
-        
-        v -= v.mean(axis= 0)
-        self.vertices = self.V = v
-        self.rotate(self.angle)
-        
-
 def fit(hole, block):
+    """
+    determine if block fits in hole.
+    """
     pos_fit= np.linalg.norm(np.array(hole.center)-
                np.array(block.center)) < TOL
-    
-    if not isinstance(block,Disk):
-        v = block.vertices.shape[0]
-        
-        hole_ang = hole.angle - hole.angle
-        block_ang= abs(block.angle - hole.angle) % 360
-        ang_fit= any([abs(block_ang - ang) < TOL for ang in range(0,360,360/v)])
-    else:
-        ang_fit = True
-    
-    #ang_fit= abs(hole.ang - block.ang) < TOL
-    return (pos_fit and ang_fit)
+    U = shapely.geometry.asPolygon(hole.vertices)
+    V = shapely.geometry.asPolygon(block.vertices)   
+
+    geom_fit = U.contains(V)
+            
+    return pos_fit and geom_fit
 
 def process_observation(screen):
 
-    r = pygame.surfarray.pixels_red(screen).astype('float32')
-    g = pygame.surfarray.pixels_green(screen).astype('float32')
-    b = pygame.surfarray.pixels_blue(screen).astype('float32')
+    r = pg.surfarray.pixels_red(screen).astype('float32')
+    g = pg.surfarray.pixels_green(screen).astype('float32')
+    b = pg.surfarray.pixels_blue(screen).astype('float32')
     X = (2 ** 2) * r + 2 * g + b # convert to 1D map
     Z = imresize(X,(84,84))
     Y = (Z.astype('float32') - 255/2) / (255/2)
@@ -148,15 +61,8 @@ def create_renderList(specs, H, W):
     """
     blockList = []
     holeList = []
-    for key, val in specs.iteritems():
-        #if key == 'disk':
-            #obj = Disk
-        #elif key == 'rect':
-            #obj = Rect
-        #elif key == 'tri':
-            #obj = Tri
-        #else:
-            #pass
+    for key, val in specs:
+
         obj = key
         kwargs = {key : val for key, val in val.iteritems()
                   if key not in ['bPositions', 'hPosition', 'bAngles', 'hAngle']}
@@ -168,33 +74,38 @@ def create_renderList(specs, H, W):
                 kwargs['angle']= val['bAngles'][i]
             blockList.append(obj(**kwargs))
             
-        hPercent = val['hPosition']
-        kwargs['center'] = (int(hPercent[0]*H), int(hPercent[1]*W))
-        kwargs['typ'] = 'hole'
-        kwargs['color'] = BLACK
-        #if not obj == Disk:
-        kwargs['angle'] = val['hAngle']
-        holeList.append(obj(**kwargs))
+        if val['hDisp']:
+            del val['hDisp']
+            hPercent = val['hPosition']
+            kwargs['center'] = (int(hPercent[0]*H), int(hPercent[1]*W))
+            kwargs['typ'] = 'hole'
+            kwargs['color'] = BLACK
+            #if not obj == Disk:
+            kwargs['angle'] = val['hAngle']
+            kwargs['size'] = val['size'] + 5
+            holeList.append(obj(**kwargs))
             
     #renderList = holeList + blockList
     return holeList, blockList
             
 class ShapeSorter(object):
     def __init__(self, act_mode= 'discrete', grab_mode= 'toggle',
-                 shapes = [Disk, Rect, Tri],
-                 sizes = [30, 50, 60],
+                 shapes = [Trapezoid, RightTri, Hexagon, Tri, Rect],
+                 #sizes = [50, 60, 40],
+                 sizes = [60,60,60,60,60],
                  random_cursor= False,
                  random_layout= True,
                  n_blocks = 3,
                  observe_fn= None):
-        pygame.init()
+        assert len(sizes) == len(shapes)
+        pg.init()
         self.H = 200; self.W = 200
         
         self.shapes = shapes
         self.sizes = sizes
         self.n_blocks = n_blocks
         
-        self.screen=pygame.display.set_mode((self.H, self.W))
+        self.screen=pg.display.set_mode((self.H, self.W))
         self.screenCenter = (self.H/2,self.W/2)
         self.act_mode = act_mode
         self.grab_mode= grab_mode
@@ -220,7 +131,8 @@ class ShapeSorter(object):
         
         self.observation_space = Box(0, 1, 84 * 84)
             
-        block_selections= np.random.multinomial(len(self.shapes), [1./self.n_blocks]*self.n_blocks)
+        block_selections= np.random.multinomial(self.n_blocks, [1./len(self.shapes)]*len(self.shapes))
+        hDisp = [None]*len(self.shapes)
         bPers = [None]*len(self.shapes)
         hPers = [None]*len(self.shapes)
         bAngs = [None]*len(self.shapes)
@@ -235,48 +147,30 @@ class ShapeSorter(object):
                                ]
         random.shuffle(canonical_positions)
         
-        for i, n_b in enumerate(block_selections):
-            bPers[i] = np.around(np.random.uniform(0.05,0.95,(n_b,2)),1)
-            bAngs[i] = np.random.randint(1,360/DISCRETE_ROT,(n_b,)) * DISCRETE_ROT % 360
-            hPers[i] = canonical_positions[i]
-            hAngs[i] = np.random.randint(1,360/DISCRETE_ROT) * DISCRETE_ROT % 360
+        for i, (shape_ix, n_b) in enumerate(zip(np.argsort(block_selections)[::-1], np.sort(block_selections)[::-1])):
+            bPers[shape_ix] = np.around(np.random.uniform(0.05,0.95,(n_b,2)),1)
+            bAngs[shape_ix] = np.random.randint(1,360/DISCRETE_ROT,(n_b,)) * DISCRETE_ROT % 360
+            try:
+                hPers[shape_ix] = canonical_positions[i]
+                hAngs[shape_ix] = np.random.randint(1,360/DISCRETE_ROT) * DISCRETE_ROT % 360
+                hDisp[shape_ix] = True
+            except IndexError:
+                hPers[shape_ix] = np.array([])
+                hAngs[shape_ix] = np.array([])
+                hDisp[shape_ix] = False
                         
-        D = {shape: {'color':RED,
-                     'size':self.sizes[i],
-                     'bPositions':bPers[i],
-                     'hPosition':hPers[i],
-                     'bAngles':bAngs[i],
-                     'hAngle':hAngs[i]
-                     }
+        D = [(shape, {'color':RED,
+                      'hDisp':hDisp[i],
+                      'size':self.sizes[i],
+                      'bPositions':bPers[i],
+                      'hPosition':hPers[i],
+                      'bAngles':bAngs[i],
+                      'hAngle':hAngs[i]
+                    })
             for i, shape in enumerate(self.shapes)
-            }
+            ]
             
-        hList, bList = create_renderList(D, self.H, self.W)
-        #hList, bList= create_renderList({'disk':{'color':RED, 'size':30,
-                                               #'bPositions':pers[0],
-                                               #'hPosition' :(0.3,.3)},
-                                       #'rect':{'color':RED, 'size':50,
-                                               #'bPositions': pers[1],
-                                               #'hPosition' :(.7,.3),
-                                               #'bAngles' : np.random.randint(1,12,(len(pers[1])
-                                                                                   #,)) * DISCRETE_ROT % 360},
-                                       #'tri':{'color':RED, 'size':60,
-                                              #'bPositions': pers[2],
-                                              #'hPosition' : (.5,.7),
-                                              #'bAngles' : np.random.randint(1,12,(len(pers[2])
-                                                                                  #,)) * DISCRETE_ROT % 360}
-                                       #},
-                                       #self.H, self.W)          
-
-        #else:
-            #hList, bList= create_renderList({'disk':{'color':RED, 'size':30,
-                                                   #'bPositions':pers[0],
-                                                   #'hPosition' :(0.3,.5)},
-                                           #'rect':{'color':RED, 'size':50,
-                                                   #'bPositions': pers[1],
-                                                   #'hPosition' :(.7,.5)}
-                                           #},
-                                            #self.H, self.W)       
+        hList, bList = create_renderList(D, self.H, self.W)      
 
         self.state['hList'] = hList
         self.state['bList'] = bList
@@ -360,7 +254,7 @@ class ShapeSorter(object):
             #cursorDis = self.state['cursorDis']
             if self.state['target'] is None:
                 for block in self.state['bList']:
-                    if isinstance(block,Rect) or isinstance(block,Tri):
+                    if isinstance(block,PolyBlock):
                         boundary= block.size/2
                     elif isinstance(block,Disk):
                         boundary= block.size
@@ -380,18 +274,14 @@ class ShapeSorter(object):
                     
         else:
             if self.state['target'] is not None:
-                for hole in self.state['hList']:
-                    if type(hole) == type(self.state['target']):
-                        if fit(hole, self.state['target']):
-                            self.state['bList'].remove(self.state['target'])
-                            reward += 1000.0 / self.n_blocks
-                        
-                    #if (type(hole) == type(self.state['target']) and
-                        #np.linalg.norm( np.array(hole.center) 
-                                        #- np.array(self.state['target'].center))
-                        #< TOL):
-                        #self.state['bList'].remove(self.state['target'])
-                        #reward += 1000.0 / self.numBlocks
+                dists_and_holes = [(np.linalg.norm(np.array(self.state['target'].center) 
+                                                   - np.array(hole.center)),
+                                    hole
+                                    ) for hole in self.state['hList']]
+                hole = min(dists_and_holes)[1]
+                if fit(hole, self.state['target']):
+                    self.state['bList'].remove(self.state['target'])
+                    reward += 1000.0 / self.n_blocks
                         
             self.state['target'] = None
             
@@ -404,20 +294,12 @@ class ShapeSorter(object):
             col= BLUE
         else:
             col= GREEN 
-        pygame.draw.circle(self.screen, col, self.state['cursorPos'], 10)
-        #if 'rotate_cw' in agent_events:
-            #shield = (cursorPos[0]-15, cursorPos[1]-15, 30, 30)
-            #pygame.draw.arc(self.screen, OUTLINE, shield, 2*pi/3, 4*pi/3, 15)
-        #if 'rotate_ccw' in agent_events:
-            #shield = (cursorPos[0]-15, cursorPos[1]-15, 30, 30)
-            #pygame.draw.arc(self.screen, OUTLINE, shield, pi/3, 5*pi/3, 15)             
-            
+        pg.draw.circle(self.screen, col, self.state['cursorPos'], 10)
         
         if self.state['bList'] == []:
             done= True
             reward+= 5000.0 / self.n_blocks
         
-        #X = np.swapaxes(pygame.surfarray.array3d(self.screen),0,1)
         observation = self.observe_fn(self.screen)
         
         return observation, reward, done, info
@@ -428,10 +310,10 @@ class ShapeSorter(object):
         return observation
     
     def render(self):
-        pygame.draw.rect(self.screen, BLACK, (self.H*0.1, self.W*0.1,
+        pg.draw.rect(self.screen, BLACK, (self.H*0.1, self.W*0.1,
                                               self.H - 2*self.H*0.1, self.W - 2*self.W*0.1), 1)        
         time.sleep(0.1)
-        pygame.display.flip()
+        pg.display.flip()
             
 def main(smooth= False, mode= 'discrete'):
     ss= ShapeSorter(act_mode= mode, observe_fn= process_observation)
@@ -446,24 +328,24 @@ def main(smooth= False, mode= 'discrete'):
                 actions= []
                
             flag = False           
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
+            for event in pg.event.get():
+                if event.type == pg.QUIT:
                     running=False
                     break
                 
                 if mode == 'discrete':
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_SPACE:
+                    if event.type == pg.KEYDOWN:
+                        if event.key == pg.K_SPACE:
                             actions.append('grab')
                         
                         #Adjust speed of cursor.
-                        if event.key == pygame.K_LEFT:
+                        if event.key == pg.K_LEFT:
                             actions.append('left')
-                        elif event.key == pygame.K_RIGHT:
+                        elif event.key == pg.K_RIGHT:
                             actions.append('right')
-                        elif event.key == pygame.K_UP:
+                        elif event.key == pg.K_UP:
                             actions.append('up')
-                        elif event.key == pygame.K_DOWN:
+                        elif event.key == pg.K_DOWN:
                             actions.append('down')
                             
                         acts_taken += 1
@@ -471,24 +353,24 @@ def main(smooth= False, mode= 'discrete'):
                         flag= True
                         #print "euc norm: %f, kl norm: %f"%(euc_norm, kl_norm)
                         
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_a:
+                    if event.type == pg.KEYDOWN:
+                        if event.key == pg.K_a:
                             actions.append('rotate_ccw')
-                        elif event.key == pygame.K_d:
+                        elif event.key == pg.K_d:
                             actions.append('rotate_cw')
                             
-                    if event.type == pygame.KEYUP and smooth:
-                        if event.key == pygame.K_SPACE:
+                    if event.type == pg.KEYUP and smooth:
+                        if event.key == pg.K_SPACE:
                             actions.remove('grab')
                         
                         #Adjust speed of cursor.
-                        if event.key == pygame.K_LEFT:
+                        if event.key == pg.K_LEFT:
                             actions.remove('left')
-                        elif event.key == pygame.K_RIGHT:
+                        elif event.key == pg.K_RIGHT:
                             actions.remove('right')
-                        elif event.key == pygame.K_UP:
+                        elif event.key == pg.K_UP:
                             actions.remove('up')
-                        elif event.key == pygame.K_DOWN:
+                        elif event.key == pg.K_DOWN:
                             actions.remove('down')                
               
             if actions == []:
@@ -502,4 +384,5 @@ def main(smooth= False, mode= 'discrete'):
     
                     
 if __name__ == '__main__':
+    h = Hexagon(RED, (0.,0.), 30, 'block', angle = 0.0)
     X = main(smooth= False, mode= 'discrete') # Execute our main function
