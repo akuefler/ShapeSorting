@@ -10,8 +10,8 @@ import sys
 import gym
 from gym.spaces import Discrete, Box
 
-from action_maps import DISCRETE_ACT_MAP4 as DISCRETE_ACT_MAP
-#from action_maps import DISCRETE_ACT_MAP3 as DISCRETE_ACT_MAP
+from game_settings import DISCRETE_ACT_MAP4 as DISCRETE_ACT_MAP
+from game_settings import REWARD_DICT1 as REWARD_DICT
 
 from math import pi
 
@@ -90,9 +90,9 @@ def create_renderList(specs, H, W):
             
 class ShapeSorter(object):
     def __init__(self, act_mode= 'discrete', grab_mode= 'toggle',
-                 shapes = [Trapezoid, RightTri, Hexagon, Tri, Rect],
+                 shapes = [Trapezoid, RightTri, Hexagon, Tri, Rect, Star],
                  #sizes = [50, 60, 40],
-                 sizes = [60,60,60,60,60],
+                 sizes = [60,60,60,60,60,60],
                  random_cursor= False,
                  random_layout= True,
                  n_blocks = 3,
@@ -247,7 +247,7 @@ class ShapeSorter(object):
         #Penalize border hugging:
         if cursorPos[1] == self.W - 0.1*self.W or cursorPos[1] == self.W*0.1 or \
            cursorPos[0] == self.H - 0.1*self.H or cursorPos[0] == self.H*0.1:
-            reward -= 0.1 / self.n_blocks
+            reward += REWARD_DICT['boundary'] / self.n_blocks
             penalize= True
         
         if self.state['grab']:
@@ -270,7 +270,8 @@ class ShapeSorter(object):
             if self.state['target'] is not None:
                 self.state['target'].center = tuple(np.array(self.state['target'].center) + cursorDis)
                 if not penalize:
-                    reward += 0.1 / self.n_blocks
+                    #reward += 0.1 / self.n_blocks
+                    reward += REWARD_DICT['hold_block'] / self.n_blocks
                     
         else:
             if self.state['target'] is not None:
@@ -281,7 +282,7 @@ class ShapeSorter(object):
                 hole = min(dists_and_holes)[1]
                 if fit(hole, self.state['target']):
                     self.state['bList'].remove(self.state['target'])
-                    reward += 1000.0 / self.n_blocks
+                    reward += REWARD_DICT['fit_block'] / self.n_blocks
                         
             self.state['target'] = None
             
@@ -298,7 +299,7 @@ class ShapeSorter(object):
         
         if self.state['bList'] == []:
             done= True
-            reward+= 5000.0 / self.n_blocks
+            reward+= REWARD_DICT['trial_end'] / self.n_blocks
         
         observation = self.observe_fn(self.screen)
         
