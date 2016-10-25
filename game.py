@@ -22,10 +22,6 @@ import time
 import random
 
 TOL = 10
-#DISCRETE_STEP = 20
-DISCRETE_STEP = 20
-DISCRETE_ROT = 30 #should be 30?
-
 E = 20
 T = 5000
         
@@ -97,13 +93,19 @@ class ShapeSorter(object):
                  random_holes= True,
                  n_blocks = 3,
                  act_map = DISCRETE_ACT_MAP,
-                 reward_dict = REWARD_DICT):
+                 reward_dict = REWARD_DICT,
+                 step_size = 20,
+                 rot_size = 30
+                 ):
         assert len(sizes) == len(shapes)
         pg.init()
         self.H = 200; self.W = 200
         
         self.act_map = act_map
         self.reward_dict = reward_dict
+        
+        self.step_size = step_size
+        self.rot_size = rot_size
         
         self.shapes = shapes
         self.sizes = sizes
@@ -140,20 +142,19 @@ class ShapeSorter(object):
         
         assert len(block_selections) == len(self.shapes)
         
-        canonical_positions = [[0.03 * self.H/DISCRETE_STEP,0.03 * self.H/DISCRETE_STEP],
-                               [0.07 * self.H/DISCRETE_STEP,0.03 * self.H/DISCRETE_STEP],
-                               [0.03 * self.H/DISCRETE_STEP,0.07 * self.H/DISCRETE_STEP],
-                               [0.07 * self.H/DISCRETE_STEP,0.07 * self.H/DISCRETE_STEP]
-                               ]
+        canonical_positions = [[0.3,0.3],[0.3,0.7],[0.7,0.7],[0.7,0.3]]
         if self.random_holes:
             random.shuffle(canonical_positions)
         
         for i, (shape_ix, n_b) in enumerate(zip(np.argsort(block_selections)[::-1], np.sort(block_selections)[::-1])):
             bPers[shape_ix] = np.around(np.random.uniform(0.05,0.95,(n_b,2)),1)
-            bAngs[shape_ix] = np.random.randint(1,360/DISCRETE_ROT,(n_b,)) * DISCRETE_ROT % 360
+            #bAngs[shape_ix] = np.random.randint(1,360/self.rot_size,(n_b,)) * self.rot_size % 360
+            bAngs[shape_ix] = np.random.randint(0,360/self.rot_size,(n_b,)) * self.rot_size % 360
+            
             try:
                 hPers[shape_ix] = canonical_positions[i]
-                hAngs[shape_ix] = np.random.randint(1,360/DISCRETE_ROT) * DISCRETE_ROT % 360
+                #hAngs[shape_ix] = np.random.randint(1,360/self.rot_size) * self.rot_size % 360
+                hAngs[shape_ix] = np.random.randint(0,360/self.rot_size) * self.rot_size % 360                
                 hDisp[shape_ix] = True
             except IndexError:
                 hPers[shape_ix] = np.array([])
@@ -211,17 +212,17 @@ class ShapeSorter(object):
                 self.state['grab'] = not self.state['grab']
             
         if 'left' in agent_events:
-            self.state['x_speed'] = x_speed = -DISCRETE_STEP
+            self.state['x_speed'] = x_speed = -self.step_size
         elif 'right' in agent_events:
-            self.state['x_speed'] = x_speed = DISCRETE_STEP
+            self.state['x_speed'] = x_speed = self.step_size
         else:
             self.state['x_speed'] = x_speed = 0
             
             
         if 'up' in agent_events:
-            self.state['y_speed'] = y_speed = -DISCRETE_STEP
+            self.state['y_speed'] = y_speed = -self.step_size
         elif 'down' in agent_events:
-            self.state['y_speed'] = y_speed = DISCRETE_STEP
+            self.state['y_speed'] = y_speed = self.step_size
         else:
             self.state['y_speed'] = y_speed = 0
             
@@ -231,14 +232,14 @@ class ShapeSorter(object):
         self.state['cursorDis'] = cursorDis = np.array(cursorPos) - np.array(prevCursorPos)        
             
         if 'rotate_cw' in agent_events and self.state['target']:
-            self.state['target'].rotate(-DISCRETE_ROT)
+            self.state['target'].rotate(-self.rot_size)
             reward += 0.1 / self.n_blocks
             
             #shield = (cursorPos[0]-15, cursorPos[1]-15, 30, 30)
             #pygame.draw.arc(self.screen, OUTLINE, shield, pi/2, 3*pi/2, 15)            
         
         if 'rotate_ccw' in agent_events and self.state['target']:
-            self.state['target'].rotate(DISCRETE_ROT)
+            self.state['target'].rotate(self.rot_size)
             reward += 0.1 / self.n_blocks
             
             #shield = (cursorPos[0]-15, cursorPos[1]-15, 30, 30)
@@ -316,8 +317,8 @@ class ShapeSorter(object):
         time.sleep(0.1)
         pg.display.flip()
             
-def main(smooth= False, mode= 'discrete'):
-    ss= ShapeSorter(act_mode= mode, observe_fn= process_observation)
+def main(smooth= False, **kwargs):
+    ss= ShapeSorter(**kwargs)
     acts_taken = 0
     running = True
     actions= []
@@ -334,7 +335,7 @@ def main(smooth= False, mode= 'discrete'):
                     running=False
                     break
                 
-                if mode == 'discrete':
+                if kwargs['act_mode'] == 'discrete':
                     if event.type == pg.KEYDOWN:
                         if event.key == pg.K_SPACE:
                             actions.append('grab')
@@ -381,32 +382,7 @@ def main(smooth= False, mode= 'discrete'):
             if done:
                 break
 
-class ShapeSorterWrapper(ShapeSorter):
-    
-    #_act_mode='discrete'
-    #_grab_mode='toggle'
-    #_shapes=[Trapezoid, RightTri, Hexagon, Tri, Rect, Star]
-    #_sizes=[60,60,60,60,60,60]
-    #_n_blocks=3
-    
-    def __init__(self):
-        super(ShapeSorterWrapper, self).__init__(
-            act_mode=ShapeSorterWrapper._act_mode,
-            grab_mode=ShapeSorterWrapper._grab_mode,
-            shapes=ShapeSorterWrapper._shapes,
-            sizes=ShapeSorterWrapper._sizes,
-            n_blocks=ShapeSorterWrapper._n_blocks,
-            random_cursor=ShapeSorterWrapper._random_cursor,
-            random_holes=ShapeSorterWrapper._random_holes
-        )
-    
-    @classmethod
-    def set_initials(cls, **kwargs):
-        for k, v in kwargs.iteritems():
-            setattr(ShapeSorterWrapper,k,v)
-            
-        halt= True
-
 if __name__ == '__main__':
     h = Hexagon(RED, (0.,0.), 30, 'block', angle = 0.0)
-    X = main(smooth= False, mode= 'discrete') # Execute our main function
+    from game_settings import SHAPESORT_ARGS0, SHAPESORT_ARGS1, SHAPESORT_ARGS2
+    X = main(smooth= False, **SHAPESORT_ARGS2) # Execute our main function

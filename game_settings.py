@@ -66,12 +66,39 @@ REWARD_DICT2 = \
      'trial_end':50.0
     }
 
-SHAPESORT_ARGS1 = dict(
-        _act_mode='discrete',
-        _grab_mode='toggle',
-        _shapes=[Trapezoid, RightTri, Hexagon, Tri, Rect, Star],
-        _sizes=[60,60,60,60,60,60],
-        _n_blocks=3,
-        _random_cursor=True,
-        _random_holes=True
+SHAPESORT_ARGS0 = dict(
+        act_mode='discrete',
+        grab_mode='toggle',
+        shapes=[Trapezoid, RightTri, Hexagon, Tri, Rect],
+        sizes=[60,60,60,60,60],
+        n_blocks=3,
+        random_cursor=True,
+        random_holes=True,
+        step_size=20,
+        rot_size=360
     )
+
+SHAPESORT_ARGS1 = dict(
+        act_mode='discrete',
+        grab_mode='toggle',
+        shapes=[Trapezoid, RightTri, Hexagon, Tri, Rect],
+        sizes=[60,60,60,60,60],
+        n_blocks=3,
+        random_cursor=True,
+        random_holes=True,
+        step_size=20,
+        rot_size=30
+    )
+
+SHAPESORT_ARGS2 = dict(
+        act_mode='discrete',
+        grab_mode='toggle',
+        shapes=[Trapezoid, RightTri, Hexagon, Tri, Rect] * 2,
+        sizes=[60,60,60,60,60] + [40,40,40,40,40],
+        n_blocks=3,
+        random_cursor=True,
+        random_holes=True,
+        step_size=20,
+        rot_size=30
+    )
+
